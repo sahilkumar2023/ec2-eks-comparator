@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>K8s Health Monitor | Sahil Kumar</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#03070F;--bg2:#080F1C;--bg3:#0D1626;--bg4:#111E30;
+  --border:rgba(0,200,255,0.08);--border2:rgba(0,200,255,0.15);
+  --cyan:#00C8FF;--cyan2:rgba(0,200,255,0.12);
+  --green:#00FF9C;--green2:rgba(0,255,156,0.1);
+  --amber:#FFB800;--amber2:rgba(255,184,0,0.1);
+  --red:#FF3D5A;--red2:rgba(255,61,90,0.1);
+  --purple:#B47EFF;
+  --text:#C8D8E8;--text2:#6A8099;--text3:#304050;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;min-height:100vh;overflow-x:hidden}
+
+/* SCANLINE EFFECT */
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);pointer-events:none;z-index:1000}
+
+/* HEADER */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:1rem 2rem;
+  background:var(--bg2);
+  border-bottom:1px solid var(--border2);
+  position:sticky;top:0;z-index:50;
+}
+.header-left{display:flex;align-items:center;gap:1.5rem}
+.logo{font-family:'Syne',sans-serif;font-size:1rem;font-weight:800;color:var(--cyan);letter-spacing:0.05em}
+.logo span{color:var(--text2)}
+.cluster-badge{
+  display:flex;align-items:center;gap:0.5rem;
+  background:var(--bg3);border:1px solid var(--border2);
+  border-radius:4px;padding:0.3rem 0.75rem;font-size:0.7rem;color:var(--text2)
+}
+.cluster-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
+.header-right{display:flex;align-items:center;gap:1rem}
+.last-sync{font-size:0.68rem;color:var(--text3)}
+.last-sync span{color:var(--green)}
+.refresh-btn{
+  background:var(--cyan2);border:1px solid var(--border2);color:var(--cyan);
+  padding:0.35rem 0.8rem;border-radius:4px;cursor:pointer;font-family:'JetBrains Mono',monospace;
+  font-size:0.7rem;transition:all 0.2s
+}
+.refresh-btn:hover{background:rgba(0,200,255,0.2)}
+
+/* GRID LAYOUT */
+.main{padding:1.5rem 2rem;display:flex;flex-direction:column;gap:1.5rem}
+
+/* STAT CARDS */
+.stat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem}
+.stat-card{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:8px;padding:1.25rem;position:relative;overflow:hidden;
+  transition:border-color 0.2s
+}
+.stat-card:hover{border-color:var(--border2)}
+.stat-card::after{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--accent,var(--cyan));opacity:0.6
+}
+.stat-card.green::after{--accent:var(--green)}
+.stat-card.amber::after{--accent:var(--amber)}
+.stat-card.red::after{--accent:var(--red)}
+.stat-card.purple::after{--accent:var(--purple)}
+.stat-label{font-size:0.65rem;color:var(--text2);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.6rem}
+.stat-val{font-family:'Syne',sans-serif;font-size:2rem;font-weight:700;line-height:1;margin-bottom:0.3rem}
+.stat-val.green{color:var(--green)}
+.stat-val.amber{color:var(--amber)}
+.stat-val.red{color:var(--red)}
+.stat-val.cyan{color:var(--cyan)}
+.stat-val.purple{color:var(--purple)}
+.stat-sub{font-size:0.65rem;color:var(--text3)}
+
+/* PANELS */
+.panel-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.panel-row-3{display:grid;grid-template-columns:2fr 1fr;gap:1rem}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.panel-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0.85rem 1.25rem;border-bottom:1px solid var(--border);
+  background:var(--bg3)
+}
+.panel-title{font-size:0.72rem;color:var(--cyan);text-transform:uppercase;letter-spacing:0.1em;font-weight:600}
+.panel-meta{font-size:0.65rem;color:var(--text3)}
+.panel-body{padding:1.25rem}
+
+/* POD TABLE */
+.pod-table{width:100%;border-collapse:collapse}
+.pod-table th{font-size:0.62rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.1em;padding:0.4rem 0.75rem;text-align:left;border-bottom:1px solid var(--border)}
+.pod-table td{padding:0.55rem 0.75rem;border-bottom:1px solid var(--border);font-size:0.72rem;vertical-align:middle}
+.pod-table tr:last-child td{border-bottom:none}
+.pod-table tr:hover td{background:rgba(0,200,255,0.03)}
+.status-badge{
+  display:inline-flex;align-items:center;gap:0.35rem;
+  padding:0.15rem 0.5rem;border-radius:3px;font-size:0.65rem;font-weight:600
+}
+.status-running{background:var(--green2);color:var(--green)}
+.status-pending{background:var(--amber2);color:var(--amber)}
+.status-error{background:var(--red2);color:var(--red)}
+.status-terminating{background:rgba(180,126,255,0.1);color:var(--purple)}
+.status-dot{width:5px;height:5px;border-radius:50%;background:currentColor;animation:blink 2s infinite}
+.restart-count{color:var(--amber);font-weight:600}
+.restart-count.high{color:var(--red)}
+.restart-count.ok{color:var(--text2)}
+
+/* CPU/MEM BARS */
+.resource-bar{height:4px;background:var(--bg4);border-radius:2px;margin-top:3px;overflow:hidden}
+.resource-fill{height:100%;border-radius:2px;transition:width 1s ease}
+.fill-green{background:var(--green)}
+.fill-amber{background:var(--amber)}
+.fill-red{background:var(--red)}
+
+/* NAMESPACE PILLS */
+.ns-pill{
+  display:inline-block;padding:0.1rem 0.5rem;border-radius:3px;
+  font-size:0.62rem;background:var(--bg4);border:1px solid var(--border);color:var(--text2)
+}
+
+/* CHART AREA */
+.chart-container{position:relative;height:160px}
+canvas{width:100%!important}
+
+/* ALERTS */
+.alert-list{display:flex;flex-direction:column;gap:0.5rem}
+.alert-item{
+  display:flex;align-items:flex-start;gap:0.75rem;
+  padding:0.65rem 0.85rem;border-radius:6px;border-left:3px solid;
+  background:var(--bg3)
+}
+.alert-item.critical{border-color:var(--red);background:var(--red2)}
+.alert-item.warning{border-color:var(--amber);background:var(--amber2)}
+.alert-item.info{border-color:var(--cyan);background:var(--cyan2)}
+.alert-icon{font-size:0.9rem;margin-top:1px;flex-shrink:0}
+.alert-msg{font-size:0.72rem;color:var(--text);line-height:1.5}
+.alert-time{font-size:0.62rem;color:var(--text3);margin-top:0.2rem}
+
+/* NODE CARDS */
+.node-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem}
+.node-card{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:0.85rem}
+.node-name{font-size:0.72rem;color:var(--cyan);margin-bottom:0.5rem;font-weight:600}
+.node-metric{display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem}
+.node-metric-label{font-size:0.62rem;color:var(--text3)}
+.node-metric-val{font-size:0.68rem;color:var(--text)}
+
+/* LOG STREAM */
+.log-stream{
+  background:var(--bg);border:1px solid var(--border);border-radius:6px;
+  padding:0.85rem;height:180px;overflow-y:auto;font-size:0.68rem;line-height:1.8
+}
+.log-stream::-webkit-scrollbar{width:4px}
+.log-stream::-webkit-scrollbar-track{background:var(--bg)}
+.log-stream::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.log-line{display:flex;gap:0.75rem}
+.log-time{color:var(--text3);flex-shrink:0}
+.log-level-INFO{color:var(--cyan)}
+.log-level-WARN{color:var(--amber)}
+.log-level-ERROR{color:var(--red)}
+.log-msg{color:var(--text2)}
+
+/* UPTIME TIMELINE */
+.uptime-row{display:flex;gap:3px;margin-bottom:0.4rem}
+.uptime-block{
+  flex:1;height:24px;border-radius:2px;background:var(--green);
+  opacity:0.7;transition:opacity 0.2s;cursor:default
+}
+.uptime-block:hover{opacity:1}
+.uptime-block.down{background:var(--red)}
+.uptime-block.degraded{background:var(--amber)}
+.uptime-label{display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text3)}
+
+/* MINI SPARKLINE */
+.sparkline{display:inline-flex;align-items:flex-end;gap:2px;height:20px}
+.spark-bar{width:4px;border-radius:1px;background:var(--cyan);opacity:0.6;min-height:2px}
+
+/* SLO GAUGE */
+.slo-section{display:flex;flex-direction:column;gap:0.85rem}
+.slo-item{display:flex;flex-direction:column;gap:0.3rem}
+.slo-header{display:flex;justify-content:space-between}
+.slo-name{font-size:0.68rem;color:var(--text2)}
+.slo-pct{font-size:0.68rem;font-weight:600}
+.slo-pct.ok{color:var(--green)}
+.slo-pct.warn{color:var(--amber)}
+.slo-track{height:6px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.slo-fill{height:100%;border-radius:3px;transition:width 1.5s ease}
+
+/* RESPONSIVE */
+@media(max-width:900px){
+  .stat-row{grid-template-columns:repeat(3,1fr)}
+  .panel-row,.panel-row-3{grid-template-columns:1fr}
+}
+
+/* ANIMATIONS */
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.stat-card,.panel{animation:fadeIn 0.4s ease both}
+.stat-card:nth-child(1){animation-delay:0.05s}
+.stat-card:nth-child(2){animation-delay:0.1s}
+.stat-card:nth-child(3){animation-delay:0.15s}
+.stat-card:nth-child(4){animation-delay:0.2s}
+.stat-card:nth-child(5){animation-delay:0.25s}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <div class="logo">K8s<span>/</span>HealthMonitor</div>
+    <div class="cluster-badge">prod-eks-cluster-01</div>
+    <div class="cluster-badge" style="border-color:rgba(0,255,156,0.2);color:#6A8099">ap-south-1 · EKS 1.29</div>
+  </div>
+  <div class="header-right">
+    <div class="last-sync">Last sync: <span id="sync-time">just now</span></div>
+    <button class="refresh-btn" onclick="refreshDashboard()">⟳ Refresh</button>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- STAT CARDS -->
+  <div class="stat-row">
+    <div class="stat-card green">
+      <div class="stat-label">Running Pods</div>
+      <div class="stat-val green" id="running-pods">47</div>
+      <div class="stat-sub">across 3 namespaces</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-label">Pending Pods</div>
+      <div class="stat-val amber" id="pending-pods">2</div>
+      <div class="stat-sub">awaiting scheduling</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">Failed Pods</div>
+      <div class="stat-val red" id="failed-pods">1</div>
+      <div class="stat-sub">requires attention</div>
+    </div>
+    <div class="stat-card cyan">
+      <div class="stat-label">Total Restarts</div>
+      <div class="stat-val cyan" id="total-restarts">14</div>
+      <div class="stat-sub">last 24 hours</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-label">Cluster Uptime</div>
+      <div class="stat-val purple">99.9%</div>
+      <div class="stat-sub">last 30 days</div>
+    </div>
+  </div>
+
+  <!-- POD TABLE + ALERTS -->
+  <div class="panel-row-3">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Pod Status Overview</span>
+        <span class="panel-meta" id="pod-count">50 pods total</span>
+      </div>
+      <div class="panel-body" style="padding:0">
+        <table class="pod-table">
+          <thead>
+            <tr>
+              <th>Pod Name</th>
+              <th>Namespace</th>
+              <th>Status</th>
+              <th>Restarts</th>
+              <th>CPU</th>
+              <th>Memory</th>
+              <th>Age</th>
+            </tr>
+          </thead>
+          <tbody id="pod-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:1rem">
+      <!-- ALERTS -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">⚠ Active Alerts</span>
+          <span class="panel-meta" id="alert-count">3 alerts</span>
+        </div>
+        <div class="panel-body" style="padding:0.85rem">
+          <div class="alert-list" id="alert-list"></div>
+        </div>
+      </div>
+
+      <!-- SLOs -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">SLO Tracking</span>
+          <span class="panel-meta">30-day window</span>
+        </div>
+        <div class="panel-body">
+          <div class="slo-section" id="slo-section"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESOURCE CHARTS + NODES -->
+  <div class="panel-row">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">CPU Usage (last 60 min)</span>
+        <span class="panel-meta">cluster-wide %</span>
+      </div>
+      <div class="panel-body">
+        <div class="chart-container"><canvas id="cpu-chart"></canvas></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Memory Usage (last 60 min)</span>
+        <span class="panel-meta">cluster-wide %</span>
+      </div>
+      <div class="panel-body">
+        <div class="chart-container"><canvas id="mem-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NODES + UPTIME + LOGS -->
+  <div class="panel-row">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Node Health</span>
+        <span class="panel-meta">4 nodes</span>
+      </div>
+      <div class="panel-body">
+        <div class="node-grid" id="node-grid"></div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:1rem">
+      <!-- UPTIME -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Service Uptime (90 days)</span>
+          <span class="panel-meta">payment-gateway</span>
+        </div>
+        <div class="panel-body">
+          <div class="uptime-row" id="uptime-row"></div>
+          <div class="uptime-label">
+            <span>90 days ago</span>
+            <span style="color:var(--green)">99.91% uptime</span>
+            <span>today</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE LOGS -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Live Log Stream</span>
+          <span class="panel-meta" style="color:var(--green)">● streaming</span>
+        </div>
+        <div class="panel-body" style="padding:0.75rem">
+          <div class="log-stream" id="log-stream"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+// ── DATA ─────────────────────────────────────────────────────────────
+const PODS = [
+  {name:'payment-api-7d9f8b-xk2p',ns:'production',status:'Running',restarts:0,cpu:42,mem:61,age:'12d'},
+  {name:'payment-api-7d9f8b-mn4q',ns:'production',status:'Running',restarts:1,cpu:38,mem:58,age:'12d'},
+  {name:'payment-api-7d9f8b-rp7w',ns:'production',status:'Running',restarts:0,cpu:55,mem:63,age:'12d'},
+  {name:'checkout-svc-6c5d4-bv9x',ns:'production',status:'Running',restarts:3,cpu:71,mem:74,age:'8d'},
+  {name:'checkout-svc-6c5d4-nk3z',ns:'production',status:'Running',restarts:2,cpu:68,mem:72,age:'8d'},
+  {name:'fraud-detector-5f8b-lw6r',ns:'production',status:'Running',restarts:0,cpu:29,mem:45,age:'15d'},
+  {name:'fraud-detector-5f8b-qm2t',ns:'production',status:'Pending',restarts:0,cpu:0,mem:0,age:'2m'},
+  {name:'notification-svc-4d7c-ht5p',ns:'production',status:'Running',restarts:1,cpu:18,mem:32,age:'20d'},
+  {name:'auth-service-9b2e-vj8k',ns:'production',status:'Running',restarts:0,cpu:33,mem:49,age:'25d'},
+  {name:'db-proxy-3a1f-cx4n',ns:'production',status:'Error',restarts:7,cpu:0,mem:12,age:'1h'},
+  {name:'metrics-collector-2g6h-yw3m',ns:'monitoring',status:'Running',restarts:0,cpu:12,mem:28,age:'30d'},
+  {name:'prometheus-0',ns:'monitoring',status:'Running',restarts:0,cpu:22,mem:55,age:'30d'},
+  {name:'grafana-7c8d-fk9p',ns:'monitoring',status:'Running',restarts:0,cpu:8,mem:38,age:'30d'},
+  {name:'alertmanager-0',ns:'monitoring',status:'Running',restarts:1,cpu:5,mem:22,age:'30d'},
+  {name:'ingress-nginx-ctrl-5b4a-rd7q',ns:'ingress-nginx',status:'Running',restarts:0,cpu:15,mem:41,age:'45d'},
+  {name:'ingress-nginx-ctrl-5b4a-sz1v',ns:'ingress-nginx',status:'Pending',restarts:0,cpu:0,mem:0,age:'5m'},
+];
+
+const ALERTS = [
+  {level:'critical',icon:'🔴',msg:'db-proxy-3a1f-cx4n in CrashLoopBackOff — 7 restarts in 1h',time:'2 min ago'},
+  {level:'warning',icon:'🟡',msg:'checkout-svc CPU > 70% for 15 min — consider scaling',time:'8 min ago'},
+  {level:'warning',icon:'🟡',msg:'2 pods in Pending state — insufficient node resources',time:'12 min ago'},
+  {level:'info',icon:'🔵',msg:'payment-api rolling update completed successfully',time:'1 hr ago'},
+];
+
+const SLOS = [
+  {name:'Payment Gateway Availability',target:99.9,current:99.94},
+  {name:'API P99 Latency < 200ms',target:99.5,current:99.71},
+  {name:'Fraud Detector Throughput',target:99.0,current:99.88},
+  {name:'Auth Service Error Rate < 0.1%',target:99.9,current:99.97},
+];
+
+const NODES = [
+  {name:'ip-10-0-1-42',cpu:58,mem:71,pods:14,status:'Ready'},
+  {name:'ip-10-0-1-87',cpu:43,mem:55,pods:12,status:'Ready'},
+  {name:'ip-10-0-2-13',cpu:76,mem:82,pods:13,status:'Ready'},
+  {name:'ip-10-0-2-61',cpu:31,mem:48,pods:11,status:'Ready'},
+];
+
+const LOGS = [
+  {t:'14:32:01',l:'INFO',m:'payment-api: POST /v2/charge 200 OK — 42ms'},
+  {t:'14:32:03',l:'INFO',m:'fraud-detector: transaction TXN-8847 scored 0.12 (safe)'},
+  {t:'14:32:05',l:'WARN',m:'checkout-svc: CPU throttling detected — 71% utilization'},
+  {t:'14:32:07',l:'ERROR',m:'db-proxy: connection refused — retrying (attempt 7/10)'},
+  {t:'14:32:09',l:'INFO',m:'auth-service: JWT validated for user uid-29847'},
+  {t:'14:32:11',l:'INFO',m:'payment-api: POST /v2/charge 200 OK — 38ms'},
+  {t:'14:32:13',l:'WARN',m:'alertmanager: firing CrashLoopBackOff alert for db-proxy'},
+  {t:'14:32:15',l:'INFO',m:'ingress-nginx: 200 GET /health — upstream payment-api'},
+  {t:'14:32:17',l:'ERROR',m:'db-proxy: OOMKilled — restarting container'},
+  {t:'14:32:19',l:'INFO',m:'fraud-detector: transaction TXN-8848 scored 0.04 (safe)'},
+  {t:'14:32:21',l:'INFO',m:'metrics-collector: scrape OK — 247 metrics collected'},
+  {t:'14:32:23',l:'WARN',m:'checkout-svc: response time 185ms — approaching SLO threshold'},
+];
+
+// ── RENDER PODS ───────────────────────────────────────────────────────
+function renderPods(){
+  const tbody = document.getElementById('pod-tbody');
+  tbody.innerHTML = PODS.map(p => {
+    const statusClass = {Running:'status-running',Pending:'status-pending',Error:'status-error',Terminating:'status-terminating'}[p.status]||'status-pending';
+    const restartClass = p.restarts >= 5 ? 'high' : p.restarts > 0 ? 'restart-count' : 'ok';
+    const cpuColor = p.cpu > 70 ? 'fill-red' : p.cpu > 50 ? 'fill-amber' : 'fill-green';
+    const memColor = p.mem > 80 ? 'fill-red' : p.mem > 60 ? 'fill-amber' : 'fill-green';
+    return `<tr>
+      <td style="color:var(--text);font-size:0.68rem">${p.name}</td>
+      <td><span class="ns-pill">${p.ns}</span></td>
+      <td><span class="status-badge ${statusClass}"><span class="status-dot"></span>${p.status}</span></td>
+      <td><span class="restart-count ${restartClass}">${p.restarts}</span></td>
+      <td style="min-width:70px">
+        <div style="font-size:0.65rem;color:${p.cpu>70?'var(--red)':p.cpu>50?'var(--amber)':'var(--text2)'}">${p.cpu}%</div>
+        <div class="resource-bar"><div class="resource-fill ${cpuColor}" style="width:${p.cpu}%"></div></div>
+      </td>
+      <td style="min-width:70px">
+        <div style="font-size:0.65rem;color:${p.mem>80?'var(--red)':p.mem>60?'var(--amber)':'var(--text2)'}">${p.mem}%</div>
+        <div class="resource-bar"><div class="resource-fill ${memColor}" style="width:${p.mem}%"></div></div>
+      </td>
+      <td style="color:var(--text3)">${p.age}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── RENDER ALERTS ─────────────────────────────────────────────────────
+function renderAlerts(){
+  document.getElementById('alert-list').innerHTML = ALERTS.map(a=>`
+    <div class="alert-item ${a.level}">
+      <div class="alert-icon">${a.icon}</div>
+      <div>
+        <div class="alert-msg">${a.msg}</div>
+        <div class="alert-time">${a.time}</div>
+      </div>
+    </div>`).join('');
+  document.getElementById('alert-count').textContent = `${ALERTS.filter(a=>a.level!=='info').length} active`;
+}
+
+// ── RENDER SLOs ───────────────────────────────────────────────────────
+function renderSLOs(){
+  document.getElementById('slo-section').innerHTML = SLOS.map(s=>{
+    const ok = s.current >= s.target;
+    const pct = Math.min((s.current/100)*100,100);
+    return `<div class="slo-item">
+      <div class="slo-header">
+        <span class="slo-name">${s.name}</span>
+        <span class="slo-pct ${ok?'ok':'warn'}">${s.current}%</span>
+      </div>
+      <div class="slo-track">
+        <div class="slo-fill" style="width:${pct}%;background:${ok?'var(--green)':'var(--amber)'}"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── RENDER NODES ──────────────────────────────────────────────────────
+function renderNodes(){
+  document.getElementById('node-grid').innerHTML = NODES.map(n=>{
+    const cpuColor = n.cpu>70?'var(--red)':n.cpu>50?'var(--amber)':'var(--green)';
+    const memColor = n.mem>80?'var(--red)':n.mem>60?'var(--amber)':'var(--green)';
+    return `<div class="node-card">
+      <div class="node-name">${n.name}</div>
+      <div class="node-metric">
+        <span class="node-metric-label">CPU</span>
+        <span class="node-metric-val" style="color:${cpuColor}">${n.cpu}%</span>
+      </div>
+      <div class="resource-bar" style="margin-bottom:6px"><div class="resource-fill" style="width:${n.cpu}%;background:${cpuColor}"></div></div>
+      <div class="node-metric">
+        <span class="node-metric-label">Memory</span>
+        <span class="node-metric-val" style="color:${memColor}">${n.mem}%</span>
+      </div>
+      <div class="resource-bar" style="margin-bottom:6px"><div class="resource-fill" style="width:${n.mem}%;background:${memColor}"></div></div>
+      <div class="node-metric">
+        <span class="node-metric-label">Pods</span>
+        <span class="node-metric-val">${n.pods}/17</span>
+      </div>
+      <div style="margin-top:6px">
+        <span class="status-badge status-running"><span class="status-dot"></span>${n.status}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── RENDER UPTIME BLOCKS ──────────────────────────────────────────────
+function renderUptime(){
+  const row = document.getElementById('uptime-row');
+  const blocks = Array.from({length:90},(_,i)=>{
+    const r = Math.random();
+    // Mostly green, occasional degraded/down
+    const cls = i===42?'down':i===67||i===71?'degraded':(r<0.02?'down':r<0.05?'degraded':'');
+    return `<div class="uptime-block ${cls}" title="Day ${90-i}"></div>`;
+  });
+  row.innerHTML = blocks.join('');
+}
+
+// ── RENDER LOGS ───────────────────────────────────────────────────────
+function renderLogs(){
+  const el = document.getElementById('log-stream');
+  el.innerHTML = LOGS.map(l=>`
+    <div class="log-line">
+      <span class="log-time">${l.t}</span>
+      <span class="log-level-${l.l}">[${l.l}]</span>
+      <span class="log-msg">${l.m}</span>
+    </div>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── CHARTS ────────────────────────────────────────────────────────────
+function generateTimeLabels(){
+  const labels=[];
+  const now = new Date();
+  for(let i=59;i>=0;i--){
+    const t = new Date(now-i*60000);
+    labels.push(`${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}`);
+  }
+  return labels;
+}
+
+function generateData(base,variance,points=60){
+  return Array.from({length:points},()=>Math.max(5,Math.min(95,base+((Math.random()-0.5)*variance*2))));
+}
+
+const chartDefaults = {
+  responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{display:false},tooltip:{
+    backgroundColor:'#0D1626',borderColor:'rgba(0,200,255,0.2)',borderWidth:1,
+    titleColor:'#6A8099',bodyColor:'#C8D8E8',titleFont:{family:'JetBrains Mono',size:10},
+    bodyFont:{family:'JetBrains Mono',size:11}
+  }},
+  scales:{
+    x:{ticks:{color:'#304050',font:{family:'JetBrains Mono',size:9},maxTicksLimit:8},grid:{color:'rgba(0,200,255,0.04)'},border:{color:'rgba(0,200,255,0.08)'}},
+    y:{ticks:{color:'#304050',font:{family:'JetBrains Mono',size:9},callback:v=>v+'%'},grid:{color:'rgba(0,200,255,0.04)'},border:{color:'rgba(0,200,255,0.08)'},min:0,max:100}
+  }
+};
+
+const labels = generateTimeLabels();
+const cpuData = generateData(52,18);
+const memData = generateData(61,12);
+
+new Chart(document.getElementById('cpu-chart'),{
+  type:'line',
+  data:{
+    labels,
+    datasets:[{
+      data:cpuData,
+      borderColor:'#00C8FF',backgroundColor:'rgba(0,200,255,0.05)',
+      borderWidth:1.5,fill:true,pointRadius:0,tension:0.4
+    }]
+  },
+  options:{...chartDefaults}
+});
+
+new Chart(document.getElementById('mem-chart'),{
+  type:'line',
+  data:{
+    labels,
+    datasets:[{
+      data:memData,
+      borderColor:'#B47EFF',backgroundColor:'rgba(180,126,255,0.05)',
+      borderWidth:1.5,fill:true,pointRadius:0,tension:0.4
+    }]
+  },
+  options:{...chartDefaults}
+});
+
+// ── LIVE LOG STREAM SIMULATION ────────────────────────────────────────
+const liveLogs = [
+  {l:'INFO',m:'payment-api: POST /v2/charge 200 OK — {ms}ms'},
+  {l:'INFO',m:'fraud-detector: transaction TXN-{id} scored 0.{sc} (safe)'},
+  {l:'WARN',m:'checkout-svc: latency spike {ms}ms on /checkout endpoint'},
+  {l:'ERROR',m:'db-proxy: connection timeout after 30s — pod restarting'},
+  {l:'INFO',m:'auth-service: {n} successful logins in last 60s'},
+  {l:'INFO',m:'metrics-collector: scrape OK — {n} metrics collected'},
+  {l:'WARN',m:'node ip-10-0-2-13: CPU {pct}% — approaching limit'},
+];
+
+function addLog(){
+  const tmpl = liveLogs[Math.floor(Math.random()*liveLogs.length)];
+  const now = new Date();
+  const t = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  const msg = tmpl.m
+    .replace('{ms}',Math.floor(20+Math.random()*180))
+    .replace('{id}',Math.floor(8000+Math.random()*2000))
+    .replace('{sc}',Math.floor(Math.random()*30).toString().padStart(2,'0'))
+    .replace('{n}',Math.floor(50+Math.random()*300))
+    .replace('{pct}',Math.floor(70+Math.random()*15));
+  const el = document.getElementById('log-stream');
+  const line = document.createElement('div');
+  line.className='log-line';
+  line.innerHTML=`<span class="log-time">${t}</span><span class="log-level-${tmpl.l}">[${tmpl.l}]</span><span class="log-msg">${msg}</span>`;
+  el.appendChild(line);
+  if(el.children.length>30) el.removeChild(el.firstChild);
+  el.scrollTop=el.scrollHeight;
+}
+
+// ── REFRESH ───────────────────────────────────────────────────────────
+function refreshDashboard(){
+  // Slightly randomise stats
+  const running = 45+Math.floor(Math.random()*4);
+  const pending = Math.floor(Math.random()*3);
+  const failed = Math.floor(Math.random()*2);
+  document.getElementById('running-pods').textContent=running;
+  document.getElementById('pending-pods').textContent=pending;
+  document.getElementById('failed-pods').textContent=failed;
+  document.getElementById('total-restarts').textContent=12+Math.floor(Math.random()*5);
+  document.getElementById('sync-time').textContent='just now';
+}
+
+// ── SYNC TIMER ────────────────────────────────────────────────────────
+let syncSecs=0;
+setInterval(()=>{
+  syncSecs++;
+  const el=document.getElementById('sync-time');
+  el.textContent = syncSecs<60?`${syncSecs}s ago`:`${Math.floor(syncSecs/60)}m ago`;
+},1000);
+
+// ── INIT ──────────────────────────────────────────────────────────────
+renderPods();
+renderAlerts();
+renderSLOs();
+renderNodes();
+renderUptime();
+renderLogs();
+setInterval(addLog, 2500);
+</script>
+</body>
+</html>
